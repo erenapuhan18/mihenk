@@ -7,11 +7,32 @@ import * as T from './ta.mjs';
 
 const { yuvarla, son } = T;
 
-// Aritmetik ortalama. (Önceden medyan kullanılıyordu; kullanıcı isteğiyle
-// tüm istatistikler ortalamaya çevrildi — uç değerler dahil edilir.)
+// İki istatistik de hesaplanır ve yan yana yayımlanır:
+// MEDYAN "tipik arz ne yaptı" sorusunu doğru cevaplar ve puan kalibrasyonunda
+// kullanılır — tek bir +%4.951 uç değeri bütün kovayı bozmasın diye.
+// ORTALAMA ise "hepsine girilseydi ne olurdu"yu gösterir; bilgilendirici ama
+// bu veride uçlara aşırı duyarlı, o yüzden puanı ona dayandırmıyoruz.
+export function medyan(dizi) {
+  const d = dizi.filter(x => x != null && isFinite(x)).sort((a, b) => a - b);
+  if (!d.length) return null;
+  const o = Math.floor(d.length / 2);
+  return d.length % 2 ? d[o] : (d[o - 1] + d[o]) / 2;
+}
+
 export const ortalama = d => {
   const t = d.filter(x => x != null && isFinite(x));
   return t.length ? t.reduce((a, b) => a + b, 0) / t.length : null;
+};
+
+// ——— Finansal metin çözümü: "5,4 Milyar TL" → 5.4e9
+export const paraCoz = s => {
+  if (!s) return null;
+  const m = String(s).match(/([\d.,]+)\s*(Milyar|Milyon|Bin)?/i);
+  if (!m) return null;
+  const v = parseFloat(m[1].replace(/\./g, '').replace(',', '.'));
+  if (!isFinite(v)) return null;
+  const c = /milyar/i.test(m[2] || '') ? 1e9 : /milyon/i.test(m[2] || '') ? 1e6 : /bin/i.test(m[2] || '') ? 1e3 : 1;
+  return v * c;
 };
 
 const nfTR = n => (n == null || !isFinite(n)) ? "—" : new Intl.NumberFormat("tr-TR").format(Math.round(n));
@@ -318,18 +339,126 @@ export function arzPerformans(arz, fiyatGecmisi, endeks) {
 // Arzın sayısallaştırılmış özellikleri — hem puanlama hem benzerlik için.
 export function arzFaktorleri(a) {
   const buyuklukTL = (a.payLot && a.fiyat) ? a.payLot * a.fiyat : null;
+
+  // Piyasa değeri: arz büyüklüğünden halka açıklık oranıyla geri hesaplanır.
+  // Sınamada en güçlü ayırt edici çıktı — şirketin toplam boyutu, toplanan paradan farklı.
+  const piyasaDegeri = (buyuklukTL && a.halkaAciklik) ? buyuklukTL / (a.halkaAciklik / 100) : null;
+
+  // Hasılat büyümesi: ilk dönem KISMİ olabilir ("2026/6"). Kısmi dönemi tam yılla
+  // kıyaslamak her şirketi daralıyor gösterir; o yüzden tam yıllar karşılaştırılır.
+  const has = a.finansal?.['Hasılat'] || [];
+  const don = a.donemler || [];
+  const i0 = /\//.test(don[0] || '') ? 1 : 0;
+  const h1 = paraCoz(has[i0]), h2 = paraCoz(has[i0 + 1]);
+  const hasilatBuyume = (h1 && h2) ? yuvarla((h1 / h2 - 1) * 100, 1) : null;
+
+  // Fiyat istikrarı kaç gün planlanmış? "Planlanmamaktadır" → 0.
+  const fi = String(a.fiyatIstikrari || '');
+  const istikrarGun = !fi ? null
+    : /planlanmam/i.test(fi) ? 0
+      : (parseInt((fi.match(/(\d+)\s*gün/i) || [])[1], 10) || null);
+
   return {
     iskonto: a.iskonto ?? null,
     halkaAciklik: a.halkaAciklik ?? null,
     buyuklukTL,
     buyuklukMilyar: buyuklukTL ? yuvarla(buyuklukTL / 1e9, 2) : null,
+    piyasaDegeriMilyar: piyasaDegeri ? yuvarla(piyasaDegeri / 1e9, 2) : null,
     sermayeOrani: a.sermayeOrani ?? null,
+    bireyselOran: a.bireyselOran ?? null,
+    hasilatBuyume,
+    istikrarGun,
+    konsorsiyum: a.konsorsiyumMu === true ? 1 : a.konsorsiyumMu === false ? 0 : null,
     esitDagitim: a.dagitim ? /Eşit/i.test(a.dagitim) : null,
     yildizPazar: a.pazar ? /Yıldız/i.test(a.pazar) : null,
-    katilimci: a.katilimci ?? null,
-    bireyselOran: a.bireyselOran ?? null
+    katilimci: a.katilimci ?? null
   };
 }
+
+// Puanlamada kullanılan ölçütler — hepsi geçmiş veriyle sınanıp seçildi.
+// `kovalar` eşikleri, `baslik` arayüzde görünen ad.
+export const OLCUTLER = [
+  {
+    alan: 'piyasaDegeriMilyar', baslik: 'Şirketin piyasa değeri',
+    aciklama: 'Arz fiyatı üzerinden şirketin tamamının değeri. Sınamada en güçlü ayırt edici ölçüt.',
+    kovalar: [
+      { max: 5, etiket: 'Küçük (5 milyar ₺ altı)' },
+      { min: 5, max: 15, etiket: 'Orta (5-15 milyar ₺)' },
+      { min: 15, etiket: 'Büyük (15 milyar ₺ üstü)' }
+    ]
+  },
+  {
+    alan: 'iskonto', baslik: 'Halka arz iskontosu',
+    aciklama: 'Fiyat tespit raporundaki değere göre uygulanan indirim.',
+    kovalar: [
+      { max: 15, etiket: 'Düşük (%15 altı)' },
+      { min: 15, max: 25, etiket: 'Orta (%15-25)' },
+      { min: 25, etiket: 'Yüksek (%25 üstü)' }
+    ]
+  },
+  {
+    alan: 'halkaAciklik', baslik: 'Halka açıklık oranı',
+    aciklama: 'Şirketin borsada işlem görecek payının toplama oranı.',
+    kovalar: [
+      { max: 15, etiket: 'Dar (%15 altı)' },
+      { min: 15, max: 30, etiket: 'Orta (%15-30)' },
+      { min: 30, etiket: 'Geniş (%30 üstü)' }
+    ]
+  },
+  {
+    alan: 'buyuklukMilyar', baslik: 'Arz büyüklüğü',
+    aciklama: 'Toplanan toplam para. Piyasa değeriyle akrabadır; ikisi birlikte boyutu iki kez tartar.',
+    kovalar: [
+      { max: 1.5, etiket: 'Küçük (1,5 milyar ₺ altı)' },
+      { min: 1.5, max: 4, etiket: 'Orta (1,5-4 milyar ₺)' },
+      { min: 4, etiket: 'Büyük (4 milyar ₺ üstü)' }
+    ]
+  },
+  {
+    alan: 'bireyselOran', baslik: 'Bireysel yatırımcı tahsisatı',
+    aciklama: 'Payların yüzde kaçı bireysel yatırımcıya ayrılmış. Yüksek oran çoğu kez kurumsal talebin zayıf olduğunu gösterir.',
+    kovalar: [
+      { max: 40, etiket: 'Dar (%40 altı)' },
+      { min: 40, max: 70, etiket: 'Orta (%40-70)' },
+      { min: 70, etiket: 'Geniş (%70 üstü)' }
+    ]
+  },
+  {
+    alan: 'sermayeOrani', baslik: 'Paranın gittiği yer',
+    aciklama: 'Sermaye artırımı şirkete para sokar; ortak satışı mevcut hissedarın cebine gider.',
+    kovalar: [
+      { max: 60, etiket: 'Ağırlıkla ortak satışı' },
+      { min: 60, max: 99, etiket: 'Karma' },
+      { min: 99, etiket: 'Tamamı sermaye artırımı' }
+    ]
+  },
+  {
+    alan: 'hasilatBuyume', baslik: 'Hasılat büyümesi',
+    aciklama: 'Son iki tam yılın ciro değişimi. Kısmi dönemler karşılaştırma dışı bırakılır.',
+    kovalar: [
+      { max: 0, etiket: 'Daralan (%0 altı)' },
+      { min: 0, max: 40, etiket: 'Ilımlı (%0-40)' },
+      { min: 40, etiket: 'Hızlı (%40 üstü)' }
+    ]
+  },
+  {
+    alan: 'istikrarGun', baslik: 'Fiyat istikrarı süresi',
+    aciklama: 'Aracı kurumun fiyatı destekleme taahhüdü. Hiç planlanmaması çoğu kez ihtiyaç duyulmayacağına güvenildiği anlamına gelir.',
+    kovalar: [
+      { max: 1, etiket: 'Planlanmamış' },
+      { min: 1, max: 21, etiket: '1-20 gün' },
+      { min: 21, etiket: '20 günden uzun' }
+    ]
+  },
+  {
+    alan: 'konsorsiyum', baslik: 'Aracılık yapısı',
+    aciklama: 'Tek kurum mu yürütüyor, konsorsiyum mu. Konsorsiyum genelde büyük arzlarda kurulur.',
+    kovalar: [
+      { max: 1, etiket: 'Tek kurum' },
+      { min: 1, etiket: 'Konsorsiyum' }
+    ]
+  }
+];
 
 // Bir faktörün gerçekten işe yarayıp yaramadığını geçmiş veriyle sınar.
 // Eşiklere göre kovalara böler, her kovanın MEDYAN getirisini döndürür.
@@ -342,10 +471,11 @@ export function faktorKaniti(gecmis, alanAdi, kovalar) {
       return (kova.min == null || v >= kova.min) && (kova.max == null || v < kova.max);
     });
     const getiriler = uyanlar.map(u => u.perf?.getiri).filter(x => x != null);
-    if (getiriler.length >= 2) {
+    if (getiriler.length >= 3) {
       sonuc.push({
         etiket: kova.etiket,
         adet: getiriler.length,
+        medyan: yuvarla(medyan(getiriler), 1),
         ortalama: yuvarla(ortalama(getiriler), 1),
         artiOran: yuvarla(getiriler.filter(x => x > 0).length / getiriler.length * 100, 0)
       });
@@ -382,64 +512,47 @@ export function benzerArzlar(aday, gecmis, adet = 5) {
 export function arzDegerlendir(aday, gecmis, dogrulama = null) {
   const f = aday.faktor;
   const tumGetiriler = gecmis.map(g => g.perf?.getiri).filter(x => x != null);
+  const genelMedyan = medyan(tumGetiriler) ?? 0;
   const genelOrtalama = ortalama(tumGetiriler) ?? 0;
 
+  // Ölçütler tek bir tablodan (OLCUTLER) gelir; hepsi geçmiş veriyle sınanarak seçildi.
+  // Kalibrasyon MEDYANLA yapılır: ortalama, tek bir +%4.951 uç değerinden kovayı bozup
+  // puanlari 0/100'e yapistiriyordu.
   const olcutler = [];
-  const bak = (alanAdi, deger, kovalar, baslik, ters = false) => {
+  for (const o of OLCUTLER) {
+    const deger = f[o.alan];
     if (deger == null) {
-      olcutler.push({ baslik, durum: 'bilinmiyor', metin: 'Veri açıklanmamış', fark: null });
-      return;
+      olcutler.push({ baslik: o.baslik, aciklama: o.aciklama, durum: 'bilinmiyor', metin: 'Bu arz icin aciklanmamis', fark: null });
+      continue;
     }
-    const kanit = faktorKaniti(gecmis, alanAdi, kovalar);
-    const kova = kovalar.find(k => (k.min == null || deger >= k.min) && (k.max == null || deger < k.max));
+    const kanit = faktorKaniti(gecmis, o.alan, o.kovalar);
+    const kova = o.kovalar.find(k => (k.min == null || deger >= k.min) && (k.max == null || deger < k.max));
     const eslesen = kanit.find(k => k.etiket === kova?.etiket);
     if (!eslesen) {
-      olcutler.push({ baslik, durum: 'yetersiz', metin: `${kova?.etiket ?? deger} — benzer geçmiş örnek az`, fark: null });
-      return;
+      olcutler.push({ baslik: o.baslik, aciklama: o.aciklama, durum: 'yetersiz', deger: kova?.etiket, metin: 'Bu aralikta karsilastirilacak yeterli gecmis arz yok', fark: null });
+      continue;
     }
-    const fark = yuvarla(eslesen.ortalama - genelOrtalama, 1);
+    // Tek bir olcut puani ele gecirmesin diye fark sinirlanir.
+    const fark = yuvarla(kis(eslesen.medyan - genelMedyan, -30, 30), 1);
     olcutler.push({
-      baslik,
+      baslik: o.baslik, aciklama: o.aciklama,
       deger: kova.etiket,
       durum: fark > 5 ? 'olumlu' : fark < -5 ? 'olumsuz' : 'notr',
-      ortalama: eslesen.ortalama,
-      adet: eslesen.adet,
-      artiOran: eslesen.artiOran,
-      fark,
-      metin: `Geçmişte bu aralıktaki ${eslesen.adet} arzın ortalama getirisi %${eslesen.ortalama} (tüm arzların ortalaması %${yuvarla(genelOrtalama, 1)}); bunların %${eslesen.artiOran}’i hâlâ arz fiyatının üzerinde.`
+      medyan: eslesen.medyan, ortalama: eslesen.ortalama,
+      adet: eslesen.adet, artiOran: eslesen.artiOran, fark,
+      metin: 'Gecmiste bu araliktaki ' + eslesen.adet + ' arzin medyan getirisi %' + eslesen.medyan
+        + ' (tum arzlarin medyani %' + yuvarla(genelMedyan, 1) + '); %' + eslesen.artiOran
+        + '’i arz fiyatinin uzerinde kaldi. Ortalamalari %' + eslesen.ortalama + '.'
     });
-  };
+  }
 
-  bak('iskonto', f.iskonto, [
-    { max: 15, etiket: 'Düşük iskonto (%15 altı)' },
-    { min: 15, max: 25, etiket: 'Orta iskonto (%15-25)' },
-    { min: 25, etiket: 'Yüksek iskonto (%25 üstü)' }
-  ], 'Halka arz iskontosu');
-
-  bak('halkaAciklik', f.halkaAciklik, [
-    { max: 15, etiket: 'Dar halka açıklık (%15 altı)' },
-    { min: 15, max: 30, etiket: 'Orta halka açıklık (%15-30)' },
-    { min: 30, etiket: 'Geniş halka açıklık (%30 üstü)' }
-  ], 'Halka açıklık oranı');
-
-  bak('buyuklukMilyar', f.buyuklukMilyar, [
-    { max: 1.5, etiket: 'Küçük arz (1,5 milyar TL altı)' },
-    { min: 1.5, max: 4, etiket: 'Orta arz (1,5-4 milyar TL)' },
-    { min: 4, etiket: 'Büyük arz (4 milyar TL üstü)' }
-  ], 'Arz büyüklüğü');
-
-  bak('sermayeOrani', f.sermayeOrani, [
-    { max: 60, etiket: 'Ağırlıkla ortak satışı' },
-    { min: 60, max: 99, etiket: 'Karma' },
-    { min: 99, etiket: 'Tamamı sermaye artırımı' }
-  ], 'Paranın gittiği yer');
-
-  // Puan: her ölçütün genel ortalamadan farkını 50 tabanına ekle.
+  // Puan: her olcutun genel MEDYANDAN farki 50 tabanina eklenir.
   const farklar = olcutler.map(o => o.fark).filter(x => x != null);
   const puan = yuvarla(kis(50 + (ortalama(farklar) ?? 0) * 1.6, 0, 100), 0);
 
   const benzerler = benzerArzlar(aday, gecmis, 5);
   const benzerGetiriler = benzerler.map(b => b.perf.getiri);
+  const benzerMedyan = medyan(benzerGetiriler);
   const benzerOrtalama = ortalama(benzerGetiriler);
 
   let tur, baslik, gerekce;
@@ -449,15 +562,15 @@ export function arzDegerlendir(aday, gecmis, dogrulama = null) {
   if (puan >= 62 && olumlu > olumsuz) {
     tur = 'katil';
     baslik = 'Katılmaya değer görünüyor';
-    gerekce = `Ölçütlerin ${olumlu} tanesi geçmiş veride olumlu tarafta. En benzer ${benzerler.length} arzın ortalama getirisi %${yuvarla(benzerOrtalama, 1)}.`;
+    gerekce = `Ölçütlerin ${olumlu} tanesi geçmiş veride olumlu tarafta. En benzer ${benzerler.length} arzın ortalama getirisi %${yuvarla(benzerMedyan, 1)}.`;
   } else if (puan <= 40 || olumsuz > olumlu + 1) {
     tur = 'uzakDur';
     baslik = 'Zayıf profil — dikkatli ol';
-    gerekce = `Ölçütlerin ${olumsuz} tanesi geçmiş veride olumsuz tarafta. En benzer ${benzerler.length} arzın ortalama getirisi %${yuvarla(benzerOrtalama, 1)}.`;
+    gerekce = `Ölçütlerin ${olumsuz} tanesi geçmiş veride olumsuz tarafta. En benzer ${benzerler.length} arzın ortalama getirisi %${yuvarla(benzerMedyan, 1)}.`;
   } else {
     tur = 'notr';
     baslik = 'Ortalama profil — küçük katılım mantıklı';
-    gerekce = `Olumlu ve olumsuz ölçütler dengeli. Benzer arzların ortalama getirisi %${yuvarla(benzerOrtalama, 1)}; katılım maliyeti düşük olduğu için küçük tutarla girmek makul.`;
+    gerekce = `Olumlu ve olumsuz ölçütler dengeli. Benzer arzların ortalama getirisi %${yuvarla(benzerMedyan, 1)}; katılım maliyeti düşük olduğu için küçük tutarla girmek makul.`;
   }
 
   // ——— Net hüküm: "katılayım mı" sorusuna tek satırlık cevap + beklenen tutar + kanıt.
@@ -467,7 +580,7 @@ export function arzDegerlendir(aday, gecmis, dogrulama = null) {
 
   // Beklenen lot: yakın dönem ortalama katılımcı sayısına en yakın tahmin satırı.
   const sonKatilimcilar = gecmis.slice(-20).map(g => g.katilimci).filter(Boolean);
-  const beklenenKatilim = sonKatilimcilar.length ? ortalama(sonKatilimcilar) : null;
+  const beklenenKatilim = sonKatilimcilar.length ? medyan(sonKatilimcilar) : null;
   let lotBeklentisi = null;
   if (beklenenKatilim && aday.lotTahmini?.length) {
     const satirlar = aday.lotTahmini.map(t => {
@@ -514,8 +627,10 @@ export function arzDegerlendir(aday, gecmis, dogrulama = null) {
       iskonto: b.faktor.iskonto, halkaAciklik: b.faktor.halkaAciklik,
       buyuklukMilyar: b.faktor.buyuklukMilyar, katilimci: b.faktor.katilimci
     })),
+    benzerMedyan: yuvarla(benzerMedyan, 1),
     benzerOrtalama: yuvarla(benzerOrtalama, 1),
     benzerArtiOran: benzerGetiriler.length ? yuvarla(benzerGetiriler.filter(x => x > 0).length / benzerGetiriler.length * 100, 0) : null,
+    genelMedyan: yuvarla(genelMedyan, 1),
     genelOrtalama: yuvarla(genelOrtalama, 1),
     karar: { tur, hukum, baslik, gerekce, netCumle, riskCumlesi },
     lotBeklentisi, beklenenKatilim: beklenenKatilim ? Math.round(beklenenKatilim) : null
@@ -559,14 +674,15 @@ export function puanDogrulama(arzlar) {
     const ilk = uyan.map(a => a.perf.ilkGunGetiri).filter(x => x != null);
     return {
       ad: k.ad, adet: g.length,
+      medyanGetiri: g.length ? yuvarla(medyan(g), 1) : null,
       ortalamaGetiri: g.length ? yuvarla(ortalama(g), 1) : null,
-      ortalamaIlkGun: ilk.length ? yuvarla(ortalama(ilk), 1) : null,
+      medyanIlkGun: ilk.length ? yuvarla(medyan(ilk), 1) : null,
       artidaOran: g.length ? yuvarla(g.filter(x => x > 0).length / g.length * 100, 0) : null
     };
   }).filter(s => s.adet > 0);
 
   // Sıralama ilişkisi: puan yükseldikçe getiri de yükseliyor mu?
-  const g1 = satirlar.map(s => s.ortalamaGetiri);
+  const g1 = satirlar.map(s => s.medyanGetiri);
   const tutarli = g1.length >= 2 && g1.every((v, i) => i === 0 || v <= g1[i - 1]);
 
   return {
@@ -599,22 +715,24 @@ export function kurumKarnesi(arzlar, enAz = 2) {
       kurum: ad,
       tamAd: liste[0].araciKurum,
       adet: liste.length,
-      ortalamaGetiri: yuvarla(ortalama(g), 1),
-      ortalamaIlkGun: yuvarla(ortalama(ilk), 1),
+      medyanGetiri: yuvarla(medyan(g), 1),
+      medyanGetiri: yuvarla(medyan(g), 1),
+    ortalamaGetiri: yuvarla(ortalama(g), 1),
+      medyanIlkGun: yuvarla(medyan(ilk), 1),
       artidaOran: yuvarla(g.filter(x => x > 0).length / g.length * 100, 0),
       enIyi: yuvarla(Math.max(...g), 1),
       enKotu: yuvarla(Math.min(...g), 1),
-      ortalamaBuyukluk: yuvarla(ortalama(liste.map(x => x.faktor?.buyuklukMilyar).filter(x => x != null)), 2),
+      ortalamaBuyukluk: yuvarla(medyan(liste.map(x => x.faktor?.buyuklukMilyar).filter(x => x != null)), 2),
       ortalamaKatilimci: (() => {
         const k = liste.map(x => x.katilimci).filter(Boolean);
-        return k.length ? Math.round(ortalama(k)) : null;
+        return k.length ? Math.round(medyan(k)) : null;
       })(),
       konsorsiyumAdedi: liste.filter(x => x.konsorsiyumMu).length,
       kodlar: liste.map(x => x.kod).filter(Boolean)
     });
   }
   // Az örneklemli kurumlar yanıltmasın: önce arz sayısı, sonra ortalama getiri.
-  return satirlar.sort((a, b) => b.ortalamaGetiri - a.ortalamaGetiri);
+  return satirlar.sort((a, b) => b.medyanGetiri - a.medyanGetiri);
 }
 
 // Yıl geneli özet — kullanıcının istediği "genel getiri götürü" tablosu.
@@ -629,14 +747,17 @@ export function yilOzeti(arzlar) {
   return {
     arzSayisi: arzlar.length,
     fiyatiOlan: p.length,
+    medyanGetiri: yuvarla(medyan(g), 1),
     ortalamaGetiri: yuvarla(ortalama(g), 1),
+    medyanGetiri: yuvarla(medyan(g), 1),
     ortalamaGetiri: yuvarla(ortalama(g), 1),
     artidaOran: g.length ? yuvarla(g.filter(x => x > 0).length / g.length * 100, 0) : null,
+    medyanIlkGun: yuvarla(medyan(ilk), 1),
     ortalamaIlkGun: yuvarla(ortalama(ilk), 1),
     enIyi: sirali.slice(0, 5).map(a => ({ kod: a.kod, ad: a.ad, getiri: a.perf.getiri })),
     enKotu: sirali.slice(-5).reverse().map(a => ({ kod: a.kod, ad: a.ad, getiri: a.perf.getiri })),
     toplamBuyuklukMilyar: yuvarla(toplamBuyukluk / 1e9, 1),
-    ortalamaKatilimci: katilimcilar.length ? Math.round(ortalama(katilimcilar)) : null,
+    medyanKatilimci: katilimcilar.length ? Math.round(medyan(katilimcilar)) : null,
     esitDagitimOrani: (() => {
       const e = arzlar.map(a => a.faktor?.esitDagitim).filter(x => x != null);
       return e.length ? yuvarla(e.filter(Boolean).length / e.length * 100, 0) : null;

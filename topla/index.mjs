@@ -201,28 +201,13 @@ async function main() {
   ozetler.tum = A.yilOzeti(arzlar);
 
   // Faktör kanıt tabloları — kullanıcı puanın nereden geldiğini görebilsin.
-  const kanitlar = {
-    iskonto: A.faktorKaniti(gecmis, 'iskonto', [
-      { max: 15, etiket: 'Düşük iskonto (%15 altı)' },
-      { min: 15, max: 25, etiket: 'Orta iskonto (%15-25)' },
-      { min: 25, etiket: 'Yüksek iskonto (%25 üstü)' }
-    ]),
-    halkaAciklik: A.faktorKaniti(gecmis, 'halkaAciklik', [
-      { max: 15, etiket: 'Dar (%15 altı)' },
-      { min: 15, max: 30, etiket: 'Orta (%15-30)' },
-      { min: 30, etiket: 'Geniş (%30 üstü)' }
-    ]),
-    buyukluk: A.faktorKaniti(gecmis, 'buyuklukMilyar', [
-      { max: 1.5, etiket: 'Küçük (1,5 mlr TL altı)' },
-      { min: 1.5, max: 4, etiket: 'Orta (1,5-4 mlr TL)' },
-      { min: 4, etiket: 'Büyük (4 mlr TL üstü)' }
-    ]),
-    sermaye: A.faktorKaniti(gecmis, 'sermayeOrani', [
-      { max: 60, etiket: 'Ağırlıkla ortak satışı' },
-      { min: 60, max: 99, etiket: 'Karma' },
-      { min: 99, etiket: 'Tamamı sermaye artırımı' }
-    ])
-  };
+  // Kanit tablolari dogrudan sinanmis olcut listesinden uretilir; olcut
+  // eklendiginde arayuz de kendiliginden buyur.
+  const kanitlar = {};
+  for (const o of A.OLCUTLER) {
+    const satirlar = A.faktorKaniti(gecmis, o.alan, o.kovalar);
+    if (satirlar.length >= 2) kanitlar[o.alan] = { baslik: o.baslik, aciklama: o.aciklama, satirlar };
+  }
 
   // Gram fiyat: piyasadan gelen (Truncgil) ile teoriğin (ons × kur ÷ 31,1035) karşılaştırması.
   // Teorik değer aynı zamanda Truncgil düştüğünde yedek kaynaktır.

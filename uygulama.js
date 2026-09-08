@@ -438,9 +438,9 @@ function panelArz() {
     </div>
     <div class="izgara i4">
       ${[['Arz sayısı', nf(o.arzSayisi), `${nf(o.toplamBuyuklukMilyar)} milyar ₺ toplam`],
-         ['Ortalama getiri', yuzde(o.ortalamaGetiri), 'arz fiyatına göre bugün'],
+         ['Medyan getiri', yuzde(o.medyanGetiri), `ortalaması ${yuzde(o.ortalamaGetiri)}`],
          ['Artıda kalan', o.artidaOran != null ? '%' + nf(o.artidaOran) : '—', 'arz fiyatının üzerinde'],
-         ['Ortalama ilk gün', yuzde(o.ortalamaIlkGun), 'ilk işlem günü kapanışı']]
+         ['Medyan ilk gün', yuzde(o.medyanIlkGun), `ortalaması ${yuzde(o.ortalamaIlkGun)}`]]
         .map(([a, b, c]) => `<div style="background:var(--kat2);border:1px solid var(--cizgi);border-radius:9px;padding:13px 15px">
           <div style="font-size:11px;color:var(--cokSoluk);letter-spacing:.06em;text-transform:uppercase">${a}</div>
           <div class="mono" style="font-size:23px;font-weight:700;margin:5px 0 3px">${b}</div>
@@ -458,7 +458,7 @@ function panelArz() {
       </div>
     </div>
     <div class="kaynakNot" style="margin-top:12px">
-      Katılımcı ortalaması ${o.ortalamaKatilimci ? buyukSayi(o.ortalamaKatilimci) + ' kişi' : '—'} · arzların %${nf(o.esitDagitimOrani)}’i eşit dağıtım.
+      Katılımcı medyanı ${o.medyanKatilimci ? buyukSayi(o.medyanKatilimci) + ' kişi' : '—'} · arzların %${nf(o.esitDagitimOrani)}’i eşit dağıtım.
       Getiriler bedelsiz sermaye artırımına göre düzeltilmiştir; temettü dahil değildir.
     </div>
   </div>`;
@@ -571,7 +571,7 @@ function yaklasanKarti(y) {
     ${lot ? `<details class="katla">
       <summary>Kaç lot düşer? — katılımcı sayısına göre</summary>
       <div class="katlaIc">${lot}
-        <div class="kaynakNot" style="margin-top:11px">Eşit dağıtımda bireysel tahsisat, katılan kişi sayısına bölünür. 2026’da ortalama katılımcı sayısı ${buyukSayi(V.arz.ozetler['2026'].ortalamaKatilimci)} kişi; bu tabloda karşılığına bakmak gerçekçi bir beklenti verir.</div>
+        <div class="kaynakNot" style="margin-top:11px">Eşit dağıtımda bireysel tahsisat, katılan kişi sayısına bölünür. 2026’da medyan katılımcı sayısı ${buyukSayi(V.arz.ozetler['2026'].medyanKatilimci)} kişi; bu tabloda karşılığına bakmak gerçekçi bir beklenti verir.</div>
       </div>
     </details>` : ''}
 
@@ -619,37 +619,50 @@ function taslakBolumu() {
 }
 
 function kanitBolumu() {
-  const K = V.arz.kanitlar;
-  const bloklar = [
-    ['İskonto ne kadar önemli?', K.iskonto, 'Fiyat tespit raporundaki değere göre uygulanan indirim.'],
-    ['Halka açıklık oranı', K.halkaAciklik, 'Şirketin borsada işlem gören payının toplama oranı.'],
-    ['Arz büyüklüğü', K.buyukluk, 'Toplanan toplam para. Küçük arzlarda talep aynı miktarda paya daha çok yığılır.'],
-    ['Para nereye gidiyor?', K.sermaye, 'Sermaye artırımı şirkete para sokar; ortak satışı mevcut hissedarın cebine gider.']
-  ].filter(([, k]) => k?.length);
+  const K = V.arz.kanitlar || {};
+  const bloklar = Object.values(K).filter(b => b.satirlar?.length >= 2);
+  if (!bloklar.length) return '';
+  const toplam = V.arz.arzlar.filter(a => a.perf?.getiri != null).length;
 
   return `<div class="kart">
     <div class="baslikSatir"><h2>Hangi özellik gerçekten kazandırıyor?</h2>
-      <span class="not">2024-2026 arası ${V.arz.arzlar.filter(a => a.perf?.getiri != null).length} arzın gerçekleşen getirisi</span></div>
+      <span class="not">2024-2026 arası ${toplam} arzın gerçekleşen getirisi · ${bloklar.length} ölçüt</span></div>
     <div class="izgara i2">
-      ${bloklar.map(([ad, kanit, aciklama]) => `<div style="background:var(--kat2);border:1px solid var(--cizgi);border-radius:10px;padding:15px">
-        <div style="font-size:13.5px;font-weight:600;margin-bottom:3px">${ad}</div>
-        <div style="font-size:11.5px;color:var(--cokSoluk);margin-bottom:11px;line-height:1.5">${aciklama}</div>
-        ${kanit.map(k => {
-          const en = Math.max(...kanit.map(x => Math.abs(x.ortalama)), 1);
-          const g = Math.abs(k.ortalama) / en * 100;
-          return `<div style="margin-bottom:10px">
-            <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px">
-              <span style="color:var(--soluk)">${kaks(k.etiket)} <span style="color:var(--cokSoluk)">n=${k.adet}</span></span>
-              <span class="mono ${sinif(k.ortalama)}" style="font-weight:600">${yuzde(k.ortalama)}</span>
+      ${bloklar.map(b => {
+        const en = Math.max(...b.satirlar.map(x => Math.abs(x.medyan ?? 0)), 1);
+        return `<div style="background:var(--kat2);border:1px solid var(--cizgi);border-radius:10px;padding:15px">
+          <div style="font-size:13.5px;font-weight:600;margin-bottom:3px">${kaks(b.baslik)}</div>
+          <div style="font-size:11.5px;color:var(--cokSoluk);margin-bottom:12px;line-height:1.5">${kaks(b.aciklama)}</div>
+          ${b.satirlar.map(k => `<div style="margin-bottom:11px">
+            <div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;margin-bottom:4px">
+              <span style="color:var(--soluk);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+                ${kaks(k.etiket)} <span style="color:var(--cokSoluk)">n=${k.adet}</span>
+              </span>
+              <span class="mono" style="white-space:nowrap">
+                <span class="${sinif(k.medyan)}" style="font-weight:600">${yuzde(k.medyan)}</span>
+                <span style="color:var(--cokSoluk);font-size:11px"> · ort ${yuzde(k.ortalama)}</span>
+              </span>
             </div>
-            <div style="height:5px;background:var(--kat3);border-radius:3px;overflow:hidden">
-              <div style="height:100%;width:${g}%;background:${k.ortalama >= 0 ? 'var(--yesil)' : 'var(--kirmizi)'};border-radius:3px"></div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <div style="flex:1;height:5px;background:var(--kat3);border-radius:3px;overflow:hidden">
+                <div style="height:100%;width:${Math.abs(k.medyan ?? 0) / en * 100}%;background:${(k.medyan ?? 0) >= 0 ? 'var(--yesil)' : 'var(--kirmizi)'};border-radius:3px"></div>
+              </div>
+              <span style="font-size:11px;color:var(--cokSoluk);white-space:nowrap;min-width:62px;text-align:right">%${nf(k.artiOran)} artıda</span>
             </div>
-          </div>`;
-        }).join('')}
-      </div>`).join('')}
+          </div>`).join('')}
+        </div>`;
+      }).join('')}
     </div>
-    <div class="kaynakNot" style="margin-top:13px">Her çubuk, o gruptaki arzların <strong>ortalama getirisidir</strong> (uç değerler dahil). n, gruptaki arz sayısı. Bu tablolar geçmişi anlatır; geleceği garanti etmez, ama “küçük arz daha çok kazandırır” gibi yaygın sözlerin sayısal karşılığını verir.</div>
+    <div class="kaynakNot" style="margin-top:13px">
+      Kalın sayı o gruptaki arzların <strong>medyan getirisi</strong> — yanındaki “ort” ise ortalaması.
+      İkisi arasındaki fark uç değerlerden gelir: birkaç arz +%4.000’in üzerinde getirdiği için ortalama
+      tipik arzı temsil etmez, o yüzden <strong>puan medyanla kalibre edilir</strong>. En sağdaki oran,
+      o gruptaki arzların yüzde kaçının hâlâ arz fiyatının üzerinde olduğunu gösterir — uç değerlerden
+      etkilenmediği için en sağlam ölçüdür.
+      <br><br>Bu ölçütlerin hepsi geçmiş veriyle sınandı; ayırt etmeyenler (fiyat/satış oranı, brüt kâr
+      marjı, borç ödeme payı, endeks üyeliği) listeye alınmadı. Piyasa değeri ile arz büyüklüğü akrabadır,
+      ikisi birlikte boyutu iki kez tartar.
+    </div>
   </div>`;
 }
 
@@ -658,7 +671,7 @@ function kanitBolumu() {
 function puanKarnesi() {
   const d = V.arz.puanDogrulama;
   if (!d?.satirlar?.length) return '';
-  const en = Math.max(...d.satirlar.map(s => Math.abs(s.ortalamaGetiri ?? 0)), 1);
+  const en = Math.max(...d.satirlar.map(s => Math.abs(s.medyanGetiri ?? 0)), 1);
 
   return `<div class="kart">
     <div class="baslikSatir">
@@ -667,45 +680,44 @@ function puanKarnesi() {
     </div>
     <div class="tabloKutu"><table>
       <thead><tr>
-        <th>Mihenk puanı</th><th class="say">Arz</th><th>Gerçekleşen ortalama getiri</th>
-        <th class="say">Ortalama</th><th class="say">Artıda kalan</th>
+        <th>Mihenk puanı</th><th class="say">Arz</th><th>Gerçekleşen getiri</th>
+        <th class="say">Medyan</th><th class="say">Ortalama</th><th class="say">Artıda kalan</th>
       </tr></thead>
       <tbody>${d.satirlar.map(s => `<tr>
         <td><strong>${kaks(s.ad)}</strong></td>
         <td class="say">${s.adet}</td>
-        <td style="min-width:130px"><div class="karneCubuk"><i style="width:${Math.abs(s.ortalamaGetiri ?? 0) / en * 100}%;background:${(s.ortalamaGetiri ?? 0) >= 0 ? 'var(--yesil)' : 'var(--kirmizi)'}"></i></div></td>
-        <td class="say ${sinif(s.ortalamaGetiri)}"><strong>${yuzde(s.ortalamaGetiri)}</strong></td>
+        <td style="min-width:120px"><div class="karneCubuk"><i style="width:${Math.abs(s.medyanGetiri ?? 0) / en * 100}%;background:${(s.medyanGetiri ?? 0) >= 0 ? 'var(--yesil)' : 'var(--kirmizi)'}"></i></div></td>
+        <td class="say ${sinif(s.medyanGetiri)}"><strong>${yuzde(s.medyanGetiri)}</strong></td>
+        <td class="say" style="color:var(--soluk)">${yuzde(s.ortalamaGetiri)}</td>
         <td class="say">%${nf(s.artidaOran)}</td>
       </tr>`).join('')}</tbody>
     </table></div>
     <div class="kaynakNot" style="margin-top:12px">
-      <strong>Neden geriye dönük?</strong> Bir arzı, kendi getirisinin de içinde olduğu ortalamala karşılaştırmak
+      <strong>Neden geriye dönük?</strong> Bir arzı, kendi getirisinin de içinde olduğu istatistikle karşılaştırmak
       puanı kendi kendini doğrular hale getirir. Bu yüzden her arz, <strong>yalnızca kendisinden önce tamamlanmış</strong>
       arzların verisiyle puanlandı — yani o gün elde olan bilgiyle. İlk 12 arz puanlanamadı, örneklem yetmiyordu.
       <br><br>${kaks(d.yorum)}
       ${(() => {
-        // "Artıda kalan" oranı, uç değerlerden etkilenmediği için puanın ayırt
-        // ediciliğini ortalamadan daha güvenilir gösterir; o yüzden ayrıca yazılır.
-        const s = d.satirlar;
-        if (s.length < 2) return '';
-        const ust = s[0], alt = s[s.length - 1];
-        return ` Ortalama, tek bir uç örnekten çok etkilenir; “artıda kalan” oranı bu yüzden daha sağlam bir ölçüdür:
-          en yüksek kovada arzların <strong>%${nf(ust.artidaOran)}</strong>’i, en düşük kovada <strong>%${nf(alt.artidaOran)}</strong>’i
-          arz fiyatının üzerinde kalmış.`;
+        const t = d.satirlar;
+        if (t.length < 2) return '';
+        const ust = t[0], alt = t[t.length - 1];
+        return ` “Artıda kalan” oranı uç değerlerden etkilenmediği için en sağlam ölçüdür:
+          en yüksek kovada arzların <strong>%${nf(ust.artidaOran)}</strong>’i, en düşük kovada
+          <strong>%${nf(alt.artidaOran)}</strong>’i arz fiyatının üzerinde kalmış.`;
       })()}
     </div>
   </div>`;
 }
 
-// Aracı kurum karnesi — kullanıcının istediği "hangi kurumun arzı ne kazandırdı" karşılaştırması.
+// Aracı kurum karnesi — hangi kurumun götürdüğü arzlar ne kazandırmış?
 function kurumBolumu() {
   const K = V.arz.kurumKarnesi || [];
   if (!K.length) return '';
-  const enBuyuk = Math.max(...K.map(k => Math.abs(k.ortalamaGetiri)), 1);
+  const enBuyuk = Math.max(...K.map(k => Math.abs(k.medyanGetiri)), 1);
 
   const satir = k => {
-    const pay = Math.abs(k.ortalamaGetiri) / enBuyuk * 100;
-    const artiMi = k.ortalamaGetiri >= 0;
+    const pay = Math.abs(k.medyanGetiri) / enBuyuk * 100;
+    const artiMi = k.medyanGetiri >= 0;
     return `<tr>
       <td>
         <button class="filtreSifirla" data-kurum-sec="${kaks(k.kurum)}"
@@ -714,16 +726,17 @@ function kurumBolumu() {
         ${k.konsorsiyumAdedi ? `<span class="rozet" style="padding:1px 6px;font-size:10px;margin-left:5px" title="${k.konsorsiyumAdedi} arz konsorsiyumla yapıldı">kons.</span>` : ''}
       </td>
       <td class="say">${k.adet}</td>
-      <td style="min-width:110px">
+      <td style="min-width:100px">
         <div class="karneCubuk"><i style="width:${pay}%;background:${artiMi ? 'var(--yesil)' : 'var(--kirmizi)'}"></i></div>
       </td>
-      <td class="say ${sinif(k.ortalamaGetiri)}"><strong>${yuzde(k.ortalamaGetiri)}</strong></td>
-      <td class="say ${sinif(k.ortalamaIlkGun)}">${yuzde(k.ortalamaIlkGun)}</td>
+      <td class="say ${sinif(k.medyanGetiri)}"><strong>${yuzde(k.medyanGetiri)}</strong></td>
+      <td class="say" style="color:var(--soluk)">${yuzde(k.ortalamaGetiri)}</td>
+      <td class="say ${sinif(k.medyanIlkGun)}">${yuzde(k.medyanIlkGun)}</td>
       <td class="say">%${nf(k.artidaOran)}</td>
       <td class="say arti">${yuzde(k.enIyi)}</td>
       <td class="say eksi">${yuzde(k.enKotu)}</td>
       <td class="say">${k.ortalamaBuyukluk != null ? para(k.ortalamaBuyukluk, 2) : '—'}</td>
-      <td class="say">${k.ortalamaKatilimci ? buyukSayi(k.ortalamaKatilimci) : '—'}</td>
+      <td class="say">${k.medyanKatilimci ? buyukSayi(k.medyanKatilimci) : '—'}</td>
     </tr>`;
   };
 
@@ -734,9 +747,9 @@ function kurumBolumu() {
     </div>
     <div class="tabloKutu"><table>
       <thead><tr>
-        <th>Aracı kurum</th><th class="say">Arz</th><th>Ortalama getiri</th><th class="say">Ortalama</th>
+        <th>Aracı kurum</th><th class="say">Arz</th><th>Getiri</th><th class="say">Medyan</th><th class="say">Ortalama</th>
         <th class="say">İlk gün</th><th class="say">Artıda</th><th class="say">En iyi</th><th class="say">En kötü</th>
-        <th class="say">Ortalama mlr ₺</th><th class="say">Ortalama katılımcı</th>
+        <th class="say">Medyan mlr ₺</th><th class="say">Medyan katılımcı</th>
       </tr></thead>
       <tbody>${K.map(satir).join('')}</tbody>
     </table></div>
@@ -819,6 +832,7 @@ function arzListesi() {
         : '<span style="color:var(--cokSoluk)" title="puanlamak için yeterli önceki arz yok">—</span>'}</td>
       <td class="say">${a.fiyat != null ? para(a.fiyat, 2) : '—'}</td>
       <td class="say">${a.faktor?.buyuklukMilyar != null ? para(a.faktor.buyuklukMilyar, 2) : '—'}</td>
+      <td class="say">${a.bireyselOran != null ? '%' + nf(a.bireyselOran) : '<span style="color:var(--cokSoluk)">—</span>'}</td>
       <td class="say ${sinif(p?.ilkGunGetiri)}">${yuzde(p?.ilkGunGetiri)}</td>
       <td class="say ${sinif(p?.getiri)}"><strong>${yuzde(p?.getiri)}</strong></td>
       <td class="say ${sinif(p?.alfa)}">${yuzde(p?.alfa)}</td>
@@ -844,6 +858,7 @@ function arzListesi() {
         <th>Kod</th><th>Şirket</th><th>Aracı kurum</th><th>Dağıtım</th><th>Talep toplama</th>
         <th class="say" title="O tarihe kadarki arzlarla hesaplanmış geriye dönük puan">Puan</th>
         <th class="say">Arz ₺</th><th class="say">Büyüklük mlr</th>
+        <th class="say" title="Payların yüzde kaçı bireysel yatırımcıya ayrıldı">Bireysel tahsisat</th>
         <th class="say">İlk gün</th><th class="say">Getiri</th><th class="say">BIST’e göre</th>
         <th class="say">Katılımcı</th><th class="say">Kişi başı</th><th>Seyir</th>
       </tr></thead>
