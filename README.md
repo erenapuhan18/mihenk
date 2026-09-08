@@ -19,7 +19,7 @@ kaç lot düşeceği. 2024-2026 arasındaki bütün arzların gerçekleşen geti
 "hangi özellik gerçekten kazandırıyor" kanıt tabloları.
 
 **Karşılaştırma.** Aracı kurum karnesi: hangi kurumun götürdüğü arzlar ne kazandırmış
-(medyan getiri, ilk gün, artıda kalan oranı, en iyi/en kötü, medyan katılımcı) — konsorsiyumlarda
+(ortalama getiri, ilk gün, artıda kalan oranı, en iyi/en kötü, ortalama katılımcı) — konsorsiyumlarda
 lider kurum sayılır. Tam liste yıl, aracı kurum, dağıtım yöntemi, arz büyüklüğü ve pazara göre
 filtrelenip yedi ölçüte göre sıralanabilir; arama Türkçe katlamalıdır ("GARANTI" → "Garanti").
 
@@ -28,10 +28,10 @@ halka arzda KATIL / KÜÇÜK KATIL / KATILMA), yanında yapılacak somut iş ve 
 eşik** yazar — "200 günlük ortalamanın üzerinde iki gün kapanırsa hüküm döner" gibi.
 
 Geçmiş arzlar da puanlanır, ama her biri **yalnızca kendisinden önce tamamlanmış** arzların
-verisiyle: kendi getirisi karşılaştırıldığı medyanın içinde olsaydı puan kendini doğrulardı.
-Böylece puanın kendi karnesi de sitede yayımlanır (kova başına gerçekleşen medyan getiri).
+verisiyle: kendi getirisi karşılaştırıldığı ortalamaın içinde olsaydı puan kendini doğrulardı.
+Böylece puanın kendi karnesi de sitede yayımlanır (kova başına gerçekleşen ortalama getiri).
 
-Puanlama elle atanmış ağırlıklara değil, **geçmiş arzların gerçekleşen medyan
+Puanlama elle atanmış ağırlıklara değil, **geçmiş arzların gerçekleşen ortalama
 getirilerine** dayanır. Her yargının arkasındaki örneklem büyüklüğü de yayımlanır.
 
 ## Nasıl çalışır
@@ -70,7 +70,7 @@ Hepsi anahtarsız ve kamuya açık:
 
 **Bedelsiz sermaye artırımı.** BIST'te çok yaygın ve Yahoo bunu bölünme olarak
 işleyip fiyat geçmişini geriye dönük böler. Halka arz fiyatı bölünmediği için
-ham karşılaştırma sahte zararlar üretir — 2024'te medyan ilk gün getirisi
+ham karşılaştırma sahte zararlar üretir — 2024'te ortalama ilk gün getirisi
 düzeltmeden önce %-13, düzeltmeden sonra %+18,8 çıkıyor. `events=split` ile
 gelen kümülatif çarpan arz fiyatına uygulanır.
 
