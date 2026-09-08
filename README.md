@@ -18,6 +18,11 @@ metalden, ne kadarının kurdan geldiğini ayıran tablo.
 kaç lot düşeceği. 2024-2026 arasındaki bütün arzların gerçekleşen getirileri ve
 "hangi özellik gerçekten kazandırıyor" kanıt tabloları.
 
+**Karşılaştırma.** Aracı kurum karnesi: hangi kurumun götürdüğü arzlar ne kazandırmış
+(medyan getiri, ilk gün, artıda kalan oranı, en iyi/en kötü, medyan katılımcı) — konsorsiyumlarda
+lider kurum sayılır. Tam liste yıl, aracı kurum, dağıtım yöntemi, arz büyüklüğü ve pazara göre
+filtrelenip yedi ölçüte göre sıralanabilir; arama Türkçe katlamalıdır ("GARANTI" → "Garanti").
+
 Puanlama elle atanmış ağırlıklara değil, **geçmiş arzların gerçekleşen medyan
 getirilerine** dayanır. Her yargının arkasındaki örneklem büyüklüğü de yayımlanır.
 
@@ -60,6 +65,11 @@ işleyip fiyat geçmişini geriye dönük böler. Halka arz fiyatı bölünmedi�
 ham karşılaştırma sahte zararlar üretir — 2024'te medyan ilk gün getirisi
 düzeltmeden önce %-13, düzeltmeden sonra %+18,8 çıkıyor. `events=split` ile
 gelen kümülatif çarpan arz fiyatına uygulanır.
+
+**Yahoo penceresi.** Arz hisselerinde `range=2y` yetmiyor: 2024 arzlarının ilk işlem günü
+pencerenin dışında kalıyor ve ilk bar listelemeden haftalar sonrasına denk geldiği için "ilk gün
+getirisi" sahte biçimde şişiyor (BIST limitini aşan %185 gibi değerler). `range=max` kullanılır ve
+ilk bar gerçekten ilk işlem gününe denk gelmiyorsa alan boş bırakılır.
 
 **Truncgil v4 kararsız.** Bağlantıyı düpedüz reddedebiliyor. Sırayla: v4 → v3 →
 son bilinen değer (bayatlığı işaretlenerek) → ons × kur ÷ 31,1035 ile hesaplama.

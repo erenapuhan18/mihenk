@@ -251,15 +251,21 @@ export function arzPerformans(arz, fiyatGecmisi, endeks) {
   const carpan = fiyatGecmisi.bolunmeCarpani || 1;
   const arzFiyati = arz.fiyat / carpan;
 
+  // Çekilen pencere hisseyi ilk işlem gününe kadar kapsıyor mu? Kapsamıyorsa
+  // ilk bar listelemeden haftalar sonrasıdır ve "ilk gün getirisi" sahte çıkar.
+  const ilkIslem = fiyatGecmisi.meta?.ilkIslem || fiyatGecmisi.tarih[0];
+  const pencereTam = !fiyatGecmisi.meta?.ilkIslem || fiyatGecmisi.tarih[0] <= fiyatGecmisi.meta.ilkIslem;
+
   const p = {
     guncelFiyat: yuvarla(guncel, 2),
     duzeltilmisArzFiyati: carpan !== 1 ? yuvarla(arzFiyati, 4) : null,
     bolunmeler: fiyatGecmisi.bolunmeler?.length ? fiyatGecmisi.bolunmeler : null,
     getiri: yuvarla((guncel - arzFiyati) / arzFiyati * 100, 1),
-    ilkGunGetiri: yuvarla((ilkGunKapanis - arzFiyati) / arzFiyati * 100, 1),
+    ilkGunGetiri: pencereTam ? yuvarla((ilkGunKapanis - arzFiyati) / arzFiyati * 100, 1) : null,
+    pencereTam,
     enYuksek: yuvarla(Math.max(...fiyatGecmisi.yuksek), 2),
     islemGunu: k.length,
-    ilkIslem: fiyatGecmisi.meta?.ilkIslem || fiyatGecmisi.tarih[0]
+    ilkIslem
   };
   p.zirveGetiri = yuvarla((p.enYuksek - arzFiyati) / arzFiyati * 100, 1);
   p.zirvedenDusus = yuvarla((guncel - p.enYuksek) / p.enYuksek * 100, 1);
@@ -435,6 +441,43 @@ export function arzDegerlendir(aday, gecmis) {
     genelMedyan: yuvarla(genelMedyan, 1),
     karar: { tur, baslik, gerekce }
   };
+}
+
+// Aracı kurum karnesi: hangi kurumun götürdüğü arzlar gerçekte ne kazandırmış?
+// Konsorsiyumlarda lider kurum sayılır; en az `enAz` arzı olan kurumlar listelenir.
+export function kurumKarnesi(arzlar, enAz = 2) {
+  const kova = new Map();
+  for (const a of arzlar) {
+    const ad = a.araciKisa || a.araciKurum;
+    if (!ad || a.perf?.getiri == null) continue;
+    if (!kova.has(ad)) kova.set(ad, []);
+    kova.get(ad).push(a);
+  }
+  const satirlar = [];
+  for (const [ad, liste] of kova) {
+    if (liste.length < enAz) continue;
+    const g = liste.map(x => x.perf.getiri);
+    const ilk = liste.map(x => x.perf.ilkGunGetiri).filter(x => x != null);
+    satirlar.push({
+      kurum: ad,
+      tamAd: liste[0].araciKurum,
+      adet: liste.length,
+      medyanGetiri: yuvarla(medyan(g), 1),
+      medyanIlkGun: yuvarla(medyan(ilk), 1),
+      artidaOran: yuvarla(g.filter(x => x > 0).length / g.length * 100, 0),
+      enIyi: yuvarla(Math.max(...g), 1),
+      enKotu: yuvarla(Math.min(...g), 1),
+      medyanBuyukluk: yuvarla(medyan(liste.map(x => x.faktor?.buyuklukMilyar).filter(x => x != null)), 2),
+      medyanKatilimci: (() => {
+        const k = liste.map(x => x.katilimci).filter(Boolean);
+        return k.length ? Math.round(medyan(k)) : null;
+      })(),
+      konsorsiyumAdedi: liste.filter(x => x.konsorsiyumMu).length,
+      kodlar: liste.map(x => x.kod).filter(Boolean)
+    });
+  }
+  // Az örneklemli kurumlar yanıltmasın: önce arz sayısı, sonra medyan getiri.
+  return satirlar.sort((a, b) => b.medyanGetiri - a.medyanGetiri);
 }
 
 // Yıl geneli özet — kullanıcının istediği "genel getiri götürü" tablosu.

@@ -13,6 +13,8 @@ const KOK = join(dirname(fileURLToPath(import.meta.url)), '..');
 const ARSIV_YOLU = join(KOK, 'veri', 'arsiv.json');
 const CIKTI_YOLU = join(KOK, 'veri', 'veri.json');
 const YILLAR = ['2024', '2025', '2026'];
+// Ayrıştırıcı her değiştiğinde artırılır; arşivdeki eski kayıtlar otomatik tazelenir.
+const AYRISTIRICI_SURUMU = 2;
 
 const bekle = ms => new Promise(r => setTimeout(r, ms));
 const log = (...a) => console.log(...a);
@@ -31,6 +33,17 @@ function tarihCoz(metin) {
   const yil = +m[3];
   const iso = (g) => `${yil}-${String(ay).padStart(2, '0')}-${String(g).padStart(2, '0')}`;
   return { baslangic: iso(gunler[0]), bitis: iso(gunler[gunler.length - 1]), yil };
+}
+
+// "Garanti Yatırım Menkul Kıymetler A.Ş." → "Garanti Yatırım"
+// Filtre ve karşılaştırma tablolarında tam unvan okunaksız kalıyor.
+function kisaKurum(ad) {
+  if (!ad) return null;
+  return ad
+    .replace(/\s*(Menkul (Değerler|Kıymetler)|Yatırım Menkul.*|Menkul.*)\s*A\.Ş\.?$/i, '')
+    .replace(/\s*A\.Ş\.?$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim() || ad;
 }
 
 function arsivOku() {
@@ -57,7 +70,7 @@ async function main() {
     K.yahoo('GC=F', '2y'),
     K.yahoo('SI=F', '2y'),
     K.yahoo('USDTRY=X', '2y'),
-    K.yahoo('XU100.IS', '2y'),
+    K.yahoo('XU100.IS', '5y'),
     K.truncgil(),
     K.spot()
   ]);
@@ -100,10 +113,11 @@ async function main() {
     // Yakın tarihli/yaklaşan arzlar her koşuda tazelenir (sonuçlar sonradan yayımlanıyor).
     const taze = mevcut?.cekildi && (Date.now() - new Date(mevcut.cekildi)) < 21 * 864e5;
     const tamamlanmis = mevcut?.katilimci != null;
-    if (mevcut && (tamamlanmis || taze)) { onbellek++; continue; }
+    const surumUygun = mevcut?.surum === AYRISTIRICI_SURUMU;
+    if (mevcut && surumUygun && (tamamlanmis || taze)) { onbellek++; continue; }
     const d = await K.arzDetay(h.bag);
     if (d) {
-      arsiv.arzlar[h.slug] = { ...d, slug: h.slug, ad: h.ad, yil: h.yil, yayin: h.yayin, cekildi: new Date().toISOString() };
+      arsiv.arzlar[h.slug] = { ...d, slug: h.slug, ad: h.ad, yil: h.yil, yayin: h.yayin, surum: AYRISTIRICI_SURUMU, cekildi: new Date().toISOString() };
       yeni++;
     }
     await bekle(350); // kaynağa nazik davran
@@ -122,7 +136,11 @@ async function main() {
     const kayit = {
       slug: h.slug, kod, ad: a.ad, yil: h.yil,
       tarihMetni: a.tarihMetni, tarih,
-      fiyat: a.fiyat, dagitim: a.dagitim, pazar: a.pazar, araciKurum: a.araciKurum,
+      fiyat: a.fiyat, dagitim: a.dagitim, pazar: a.pazar,
+      araciKurum: a.araciKurum, araciKisa: kisaKurum(a.araciKurum),
+      konsorsiyum: a.konsorsiyum?.length ? a.konsorsiyum : null,
+      konsorsiyumMu: !!a.konsorsiyumMu,
+      endeks: a.endeks, bistIlkIslem: a.bistIlkIslem, fiiliDolasimOran: a.fiiliDolasimOran,
       payLot: a.payLot, iskonto: a.iskonto, halkaAciklik: a.halkaAciklik,
       sermayeArtirimi: a.sermayeArtirimi, ortakSatisi: a.ortakSatisi, sermayeOrani: a.sermayeOrani,
       fiyatIstikrari: a.fiyatIstikrari, satmamaTaahhudu: a.satmamaTaahhudu,
@@ -154,7 +172,7 @@ async function main() {
   log(`  ${islemdekiler.length} kod için fiyat çekiliyor…`);
   let basarili = 0;
   for (const a of islemdekiler) {
-    const g = await K.yahoo(a.kod + '.IS', '2y');
+    const g = await K.yahoo(a.kod + '.IS', 'max');
     if (g?.kapanis?.length) {
       a.perf = A.arzPerformans(a, g, bist);
       a.seri = g.kapanis.slice(-120).map(v => T.yuvarla(v, 2));
@@ -172,6 +190,8 @@ async function main() {
 
   const ozetler = {};
   for (const y of YILLAR) ozetler[y] = A.yilOzeti(arzlar.filter(a => a.yil === y));
+  // Yıllar üstü karşılaştırma için birleşik özet (arayüzde "Tüm yıllar" seçeneği).
+  ozetler.tum = A.yilOzeti(arzlar);
 
   // Faktör kanıt tabloları — kullanıcı puanın nereden geldiğini görebilsin.
   const kanitlar = {
@@ -264,7 +284,10 @@ async function main() {
       }
     },
     metaller, ayristirma, oran,
-    arz: { arzlar, yaklasanlar: yaklasanlar.map(y => y.slug), taslaklar, ozetler, kanitlar },
+    arz: {
+      arzlar, yaklasanlar: yaklasanlar.map(y => y.slug), taslaklar, ozetler, kanitlar,
+      kurumKarnesi: A.kurumKarnesi(gecmis, 2)
+    },
     haberler: { altin: haberAltin, gumus: haberGumus, arz: haberArz }
   };
 

@@ -166,17 +166,58 @@ export async function arzKartlari() {
   }).filter(Boolean);
 }
 
+// Künye tablosunda etiketten sonra gelen etiketler — değer taraması burada durur.
+const KUNYE_ETIKETLERI = [
+  'Halka Arz Tarihi', 'Halka Arz Fiyatı', 'Dağıtım Yöntemi', 'Pay :', 'Aracı Kurum',
+  'Fiili Dolaşımdaki Pay', 'Bist Kodu', 'Endeks', 'Pazar', 'Bist İlk İşlem Tarihi',
+  'Son Güncelleme', 'Özet Bilgiler', 'Halka Arz Sonuçları'
+];
+
 // Etiketli alanı "Etiket : | | değer |" kalıbından çeker.
-// Etiketle değer arasında boş hücreler olabildiği için ilk dolu parçayı arar.
+// Önce ": " ile biten gerçek künye etiketi aranır; sayfada aynı kelimeler serbest
+// metinde de geçebiliyor (ör. "Bist Aracı Kurum Endeksi" listesi) ve yanlış eşleşiyordu.
+function etiketYeri(metin, etiket) {
+  for (const kalip of [etiket + ' : |', etiket + ' :', etiket + ':|', etiket + ':']) {
+    const i = metin.indexOf(kalip);
+    if (i >= 0) return { i, uzunluk: kalip.length };
+  }
+  return null;
+}
+
 function alan(metin, etiket) {
-  const i = metin.indexOf(etiket);
-  if (i < 0) return null;
-  const parcalar = metin.slice(i + etiket.length, i + etiket.length + 400).split('|');
+  const y = etiketYeri(metin, etiket);
+  if (!y) return null;
+  const parcalar = metin.slice(y.i + y.uzunluk, y.i + y.uzunluk + 400).split('|');
   for (const p of parcalar.slice(0, 5)) {
     const t = p.replace(/^\s*:\s*/, '').trim();
     if (t && t !== ':') return t.slice(0, 160);
   }
   return null;
+}
+
+// Konsorsiyumla yapılan arzlarda üye kurumlar "Aracı Kurum" etiketinden sonra
+// ayrı hücreler halinde dizilir; bir sonraki künye etiketine kadar toplanır.
+function araciKurumlar(metin) {
+  const y = etiketYeri(metin, 'Aracı Kurum');
+  if (!y) return { lider: null, konsorsiyum: [] };
+  const parcalar = metin.slice(y.i + y.uzunluk, y.i + y.uzunluk + 900).split('|');
+  const isimler = [];
+  let konsorsiyumMu = false;
+  for (const p of parcalar) {
+    const t = p.replace(/^\s*:\s*/, '').trim();
+    if (!t) continue;
+    if (KUNYE_ETIKETLERI.some(e => t.startsWith(e.replace(' :', '')))) break;
+    if (/^\(Konsorsiyum\)$/i.test(t)) { konsorsiyumMu = true; continue; }
+    if (!/(A\.Ş\.|Bankası|Menkul|Yatırım|Capital|Securities)/i.test(t)) break;
+    isimler.push(t.slice(0, 120));
+    if (isimler.length >= 8) break;
+  }
+  if (!isimler.length) return { lider: konsorsiyumMu ? '(Konsorsiyum)' : null, konsorsiyum: [] };
+  return {
+    lider: isimler[0],
+    konsorsiyum: konsorsiyumMu ? isimler : [],
+    konsorsiyumMu
+  };
 }
 
 // Bir bölümün maddelerini toplar; sonraki başlık ya da dipnot görülünce durur.
@@ -223,6 +264,15 @@ export async function arzListesiYil(kategoriId) {
   }));
 }
 
+// Künye yüzde alanlarında ayırıcı NOKTADIR ("%31.67"); sayiya() noktayı binlik sayar.
+const oranSayi = s => {
+  if (s == null) return null;
+  const m = String(s).match(/-?[0-9]+(?:[.,][0-9]+)?/);
+  if (!m) return null;
+  const v = parseFloat(m[0].replace(',', '.'));
+  return isFinite(v) ? v : null;
+};
+
 const sayiya = s => {
   if (s == null) return null;
   const m = String(s).match(/-?[\d.]+(?:,\d+)?/);
@@ -247,10 +297,12 @@ export async function arzDetay(url) {
     fiyatMetni: alan(t, 'Halka Arz Fiyatı/Aralığı') || alan(t, 'Halka Arz Fiyatı'),
     dagitim: dagitimHam ? dagitimHam.replace(/\*+/g, '').trim() : null,
     payLot: sayiya(alan(t, 'Pay')),
-    araciKurum: alan(t, 'Aracı Kurum'),
     bistKodu: alan(t, 'Bist Kodu'),
     pazar: alan(t, 'Pazar'),
+    endeks: alan(t, 'Endeks'),
+    bistIlkIslem: alan(t, 'Bist İlk İşlem Tarihi'),
     fiiliDolasim: sayiya(alan(t, 'Fiili Dolaşımdaki Pay')),
+    fiiliDolasimOran: oranSayi(alan(t, 'Fiili Dolaşımdaki Pay Oranı (%)')),
     halkaAciklik: sayiya((maddeler(t, 'Halka Açıklık', 2)[0] || '').replace('%', '')),
     iskonto: sayiya((maddeler(t, 'Halka Arz İskontosu', 2)[0] || '').replace('%', '')),
     fiyatIstikrari: maddeler(t, 'Fiyat İstikrarı', 3).join(' '),
@@ -263,6 +315,11 @@ export async function arzDetay(url) {
   };
 
   d.fiyat = sayiya(d.fiyatMetni);
+
+  const ak = araciKurumlar(t);
+  d.araciKurum = ak.lider;
+  d.konsorsiyum = ak.konsorsiyum;
+  d.konsorsiyumMu = !!ak.konsorsiyumMu;
 
   // Arz şekli: para şirkete mi giriyor (sermaye artırımı), ortağın cebine mi (ortak satışı)?
   for (const s of d.arzSekli) {
@@ -286,7 +343,7 @@ export async function arzDetay(url) {
   if (kt > 0) {
     const dilim = t.slice(kt, kt + 1400);
     const gruplar = [];
-    for (const g of ['Yurt İçi Bireysel', 'Yurt İçi Kurumsal', 'Yurt Dışı Kurumsal', 'Yurt Dışı Bireysel']) {
+    for (const g of ['Yurt İçi Bireysel', 'Yurt İçi Kurumsal', 'Yurt Dışı Kurumsal', 'Yurt Dışı Bireysel', 'Şirket Çalışanları']) {
       const re = new RegExp(g + '\\|+\\s*([\\d.]+)\\s*\\|+\\s*([\\d.]+)\\s*\\|+\\s*%\\s*([\\d,.]+)');
       const m = dilim.match(re);
       if (m) gruplar.push({ grup: g, kisi: sayiya(m[1]), lot: sayiya(m[2]), oran: sayiya(m[3]) });
