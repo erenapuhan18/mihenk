@@ -101,6 +101,21 @@ section+section{margin-top:26px}
 .karar.bekle::before,.karar.notr::before{background:linear-gradient(180deg,var(--gumus),var(--gumusKoyu))}
 .karar.azalt::before,.karar.uzakDur::before{background:linear-gradient(180deg,var(--kirmizi),#8e332c)}
 .kararEtiket{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--cokSoluk);margin-bottom:7px}
+
+/* ——— Hüküm rozeti: "al mı, almayayım mı" sorusunun tek kelimelik cevabı ——— */
+.hukum{
+  display:inline-block;font:700 13px/1 var(--sans);letter-spacing:.1em;
+  padding:7px 13px;border-radius:7px;border:1px solid;margin-bottom:10px;
+}
+.hukum.al,.hukum.katil{color:#1a1408;background:linear-gradient(180deg,var(--altin),var(--altinKoyu));border-color:var(--altinKoyu)}
+.hukum.bekle,.hukum.notr{color:var(--gumus);background:var(--gumusSis);border-color:var(--gumusKoyu)}
+.hukum.alma,.hukum.uzakDur{color:var(--kirmizi);background:var(--kirmiziSis);border-color:rgba(212,89,79,.45)}
+.netCumle{font-size:14.5px;line-height:1.62;color:var(--metin);margin-bottom:10px}
+.donus{
+  font-size:12.5px;line-height:1.55;color:var(--soluk);
+  border-left:2px solid var(--cizgiAcik);padding-left:11px;margin-top:11px;
+}
+.donus b{color:var(--metin);font-weight:600}
 .kararBaslik{font-size:17px;font-weight:600;margin-bottom:9px}
 .kararGerekce{font-size:14px;color:var(--soluk);line-height:1.62}
 

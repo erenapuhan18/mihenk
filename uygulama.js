@@ -87,11 +87,23 @@ function mini(seri, renk) {
 }
 
 /* ——————————————————— ortak parçalar ——————————————————— */
-function kararKarti(karar, etiket) {
+// Hüküm metnini CSS sınıfına çevirir (Türkçe karakter ve boşluk barındırmasın).
+const hukumSinifi = h => ({
+  'AL': 'al', 'KADEMELİ AL': 'al', 'KATIL': 'katil',
+  'BEKLE': 'bekle', 'KÜÇÜK KATIL': 'notr',
+  'ALMA': 'alma', 'KATILMA': 'uzakDur'
+}[h] || 'bekle');
+
+function kararKarti(karar, etiket, { kisa = false } = {}) {
   return `<div class="kart karar ${kaks(karar.tur)}">
     <div class="kararEtiket">${kaks(etiket)}</div>
+    ${karar.hukum ? `<div><span class="hukum ${hukumSinifi(karar.hukum)}">${kaks(karar.hukum)}</span></div>` : ''}
     <div class="kararBaslik">${kaks(karar.baslik)}</div>
-    <div class="kararGerekce">${kaks(karar.gerekce)}</div>
+    ${karar.netCumle ? `<div class="netCumle">${kaks(karar.netCumle)}</div>` : ''}
+    ${kisa ? '' : `<div class="kararGerekce">${kaks(karar.gerekce)}</div>`}
+    ${karar.riskUyari ? `<div class="uyari" style="margin-top:11px;font-size:12.5px">${kaks(karar.riskUyari)}</div>` : ''}
+    ${karar.riskCumlesi ? `<div class="donus">${kaks(karar.riskCumlesi)}</div>` : ''}
+    ${karar.donusNoktasi ? `<div class="donus"><b>Fikri değiştirecek eşik:</b> ${kaks(karar.donusNoktasi)}</div>` : ''}
   </div>`;
 }
 
@@ -130,8 +142,12 @@ function panelBugun() {
   // Üç alanın hükmü tek bakışta.
   const yaklasan = V.arz.arzlar.filter(a => V.arz.yaklasanlar.includes(a.slug));
   const arzKarar = yaklasan.length
-    ? { tur: yaklasan[0].degerlendirme.karar.tur, baslik: `${yaklasan[0].kod} — ${yaklasan[0].degerlendirme.karar.baslik}`, gerekce: yaklasan[0].degerlendirme.karar.gerekce }
-    : { tur: 'notr', baslik: 'Talep toplaması süren arz yok', gerekce: `Şu an açık bir halka arz bulunmuyor. ${V.arz.ozetler['2026'].arzSayisi} arzla geçen 2026’nın medyan getirisi %${V.arz.ozetler['2026'].medyanGetiri}.` };
+    ? { ...yaklasan[0].degerlendirme.karar, baslik: `${yaklasan[0].kod} — ${yaklasan[0].degerlendirme.karar.baslik}` }
+    : {
+      tur: 'notr', hukum: 'ARZ YOK', baslik: 'Talep toplaması süren arz yok',
+      netCumle: `Şu an açık bir halka arz bulunmuyor. Yeni arz açıklandığında burada tam değerlendirmesiyle görünür.`,
+      gerekce: `2026’da ${V.arz.ozetler['2026'].arzSayisi} arz yapıldı; medyan getirileri %${V.arz.ozetler['2026'].medyanGetiri}.`
+    };
 
   // Etiketlere metale özgü sayı eklenir; iki metal aynı teknik konumdaysa
   // kartlar birbirinin kopyası gibi görünmesin.
@@ -145,9 +161,9 @@ function panelBugun() {
     : 'Halka arz';
 
   const kararlar = `<div class="izgara i3">
-    ${kararKarti(m.altin.karar, metalEtiket('Altın', m.altin))}
-    ${kararKarti(m.gumus.karar, metalEtiket('Gümüş', m.gumus))}
-    ${kararKarti(arzKarar, arzEtiket)}
+    ${kararKarti(m.altin.karar, metalEtiket('Altın', m.altin), { kisa: true })}
+    ${kararKarti(m.gumus.karar, metalEtiket('Gümüş', m.gumus), { kisa: true })}
+    ${kararKarti(arzKarar, arzEtiket, { kisa: true })}
   </div>`;
 
   // Günün tek cümlelik hamlesi — en yüksek öncelikli eylem.
@@ -390,6 +406,7 @@ function arzFiltrele() {
   }
   const sirala = {
     getiri: (a, b) => (b.perf?.getiri ?? -1e9) - (a.perf?.getiri ?? -1e9),
+    puan: (a, b) => (b.puan ?? -1) - (a.puan ?? -1),
     ilkGun: (a, b) => (b.perf?.ilkGunGetiri ?? -1e9) - (a.perf?.ilkGunGetiri ?? -1e9),
     alfa: (a, b) => (b.perf?.alfa ?? -1e9) - (a.perf?.alfa ?? -1e9),
     tarih: (a, b) => String(b.tarih?.bitis ?? '').localeCompare(String(a.tarih?.bitis ?? '')),
@@ -454,6 +471,7 @@ function panelArz() {
     <section>${taslakBolumu()}</section>
     <section>${ozetKart}</section>
     <section>${kanitBolumu()}</section>
+    <section>${puanKarnesi()}</section>
     <section>${kurumBolumu()}</section>
     <section>${arzListesi()}</section>`;
 }
@@ -528,8 +546,11 @@ function yaklasanKarti(y) {
       </div>
     </div>
 
+    <div><span class="hukum ${hukumSinifi(d.karar.hukum)}">${kaks(d.karar.hukum)}</span></div>
     <div class="kararBaslik">${kaks(d.karar.baslik)}</div>
+    <div class="netCumle">${kaks(d.karar.netCumle)}</div>
     <div class="kararGerekce" style="margin-bottom:6px">${kaks(d.karar.gerekce)}</div>
+    ${d.karar.riskCumlesi ? `<div class="donus">${kaks(d.karar.riskCumlesi)}</div>` : ''}
 
     <details class="katla" open style="margin-top:16px">
       <summary>Puan neden bu? — ölçütler ve geçmiş kanıtı</summary>
@@ -632,6 +653,41 @@ function kanitBolumu() {
   </div>`;
 }
 
+// Puanın kendi karnesi: geçmiş arzlar, KENDİLERİNDEN ÖNCEKİ verilerle puanlanıp
+// gerçek getirileriyle karşılaştırılır. Model burada sınanır; sonuç kötüyse de yayımlanır.
+function puanKarnesi() {
+  const d = V.arz.puanDogrulama;
+  if (!d?.satirlar?.length) return '';
+  const en = Math.max(...d.satirlar.map(s => Math.abs(s.medyanGetiri ?? 0)), 1);
+
+  return `<div class="kart">
+    <div class="baslikSatir">
+      <h2>Puan işe yarıyor mu?</h2>
+      <span class="not">${d.toplamPuanli} geçmiş arz · her biri yalnızca kendinden önceki arzlarla puanlandı</span>
+    </div>
+    <div class="tabloKutu"><table>
+      <thead><tr>
+        <th>Mihenk puanı</th><th class="say">Arz</th><th>Gerçekleşen medyan getiri</th>
+        <th class="say">Medyan</th><th class="say">Artıda kalan</th>
+      </tr></thead>
+      <tbody>${d.satirlar.map(s => `<tr>
+        <td><strong>${kaks(s.ad)}</strong></td>
+        <td class="say">${s.adet}</td>
+        <td style="min-width:130px"><div class="karneCubuk"><i style="width:${Math.abs(s.medyanGetiri ?? 0) / en * 100}%;background:${(s.medyanGetiri ?? 0) >= 0 ? 'var(--yesil)' : 'var(--kirmizi)'}"></i></div></td>
+        <td class="say ${sinif(s.medyanGetiri)}"><strong>${yuzde(s.medyanGetiri)}</strong></td>
+        <td class="say">%${nf(s.artidaOran)}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>
+    <div class="kaynakNot" style="margin-top:12px">
+      <strong>Neden geriye dönük?</strong> Bir arzı, kendi getirisinin de içinde olduğu medyanla karşılaştırmak
+      puanı kendi kendini doğrular hale getirir. Bu yüzden her arz, <strong>yalnızca kendisinden önce tamamlanmış</strong>
+      arzların verisiyle puanlandı — yani o gün elde olan bilgiyle. İlk 12 arz puanlanamadı, örneklem yetmiyordu.
+      <br><br>${kaks(d.yorum)}
+      ${d.tutarli ? '' : ' Uçlar yine de ayrışıyor: en düşük kovadaki arzların yarısı arz fiyatının altında kalmış, üst kovalarda bu oran çok daha iyi.'}
+    </div>
+  </div>`;
+}
+
 // Aracı kurum karnesi — kullanıcının istediği "hangi kurumun arzı ne kazandırdı" karşılaştırması.
 function kurumBolumu() {
   const K = V.arz.kurumKarnesi || [];
@@ -722,7 +778,7 @@ function suzgecCubugu(kapsam) {
     <div class="filtre">
       <label class="filtreAd" for="sz-sira">Sırala</label>
       <select id="sz-sira" data-suz="sira">
-        ${[['getiri', 'Bugünkü getiri'], ['ilkGun', 'İlk gün getirisi'], ['alfa', 'BIST’e göre fark'],
+        ${[['getiri', 'Bugünkü getiri'], ['puan', 'Mihenk puanı'], ['ilkGun', 'İlk gün getirisi'], ['alfa', 'BIST’e göre fark'],
            ['tarih', 'Tarih'], ['buyukluk', 'Arz büyüklüğü'], ['katilimci', 'Katılımcı sayısı'], ['kurum', 'Aracı kurum']]
           .map(([k, ad]) => `<option value="${k}"${k === arzSiraSecim ? ' selected' : ''}>${ad}</option>`).join('')}
       </select>
@@ -749,6 +805,9 @@ function arzListesi() {
       </td>
       <td style="font-size:12px;color:var(--soluk);white-space:nowrap">${kaks(a.dagitim || '—')}</td>
       <td style="font-size:12px;color:var(--soluk);white-space:nowrap">${kaks(a.tarihMetni || '—')}</td>
+      <td class="say">${a.puan != null
+        ? `<span title="o tarihe kadarki ${a.puanOrnek} arzla hesaplandı" style="font-weight:700;color:${a.puan >= 62 ? 'var(--yesil)' : a.puan <= 40 ? 'var(--kirmizi)' : 'var(--sari)'}">${a.puan}</span>`
+        : '<span style="color:var(--cokSoluk)" title="puanlamak için yeterli önceki arz yok">—</span>'}</td>
       <td class="say">${a.fiyat != null ? para(a.fiyat, 2) : '—'}</td>
       <td class="say">${a.faktor?.buyuklukMilyar != null ? para(a.faktor.buyuklukMilyar, 2) : '—'}</td>
       <td class="say ${sinif(p?.ilkGunGetiri)}">${yuzde(p?.ilkGunGetiri)}</td>
@@ -774,6 +833,7 @@ function arzListesi() {
     ${liste.length ? `<div class="tabloKutu"><table>
       <thead><tr>
         <th>Kod</th><th>Şirket</th><th>Aracı kurum</th><th>Dağıtım</th><th>Talep toplama</th>
+        <th class="say" title="O tarihe kadarki arzlarla hesaplanmış geriye dönük puan">Puan</th>
         <th class="say">Arz ₺</th><th class="say">Büyüklük mlr</th>
         <th class="say">İlk gün</th><th class="say">Getiri</th><th class="say">BIST’e göre</th>
         <th class="say">Katılımcı</th><th class="say">Kişi başı</th><th>Seyir</th>

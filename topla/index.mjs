@@ -185,8 +185,15 @@ async function main() {
   // ——— 5. Analizler
   log('\n[5/5] Analiz ve haberler…');
   const gecmis = arzlar.filter(a => a.perf?.getiri != null);
+  // Önce tamamlanmış arzlar geriye dönük puanlanır — her biri YALNIZCA kendisinden
+  // önceki arzlarla, yoksa puan kendi sonucunu bilerek hesaplanmış olur.
+  const puanlanan = A.geriyeDonukPuanla(gecmis, 12);
+  const dogrulama = A.puanDogrulama(gecmis);
+
+  // Yaklaşan arzın hükmü, puanın kendi karnesini de cümlesine katabilsin diye sonra gelir.
   const yaklasanlar = arzlar.filter(a => a.durum === 'yaklasan');
-  for (const y of yaklasanlar) y.degerlendirme = A.arzDegerlendir(y, gecmis);
+  for (const y of yaklasanlar) y.degerlendirme = A.arzDegerlendir(y, gecmis, dogrulama);
+  log(`  geriye dönük puanlanan arz: ${puanlanan} · puan-getiri sırası ${dogrulama.tutarli ? 'tutarlı' : 'kısmen tutarlı'}`);
 
   const ozetler = {};
   for (const y of YILLAR) ozetler[y] = A.yilOzeti(arzlar.filter(a => a.yil === y));
@@ -286,7 +293,8 @@ async function main() {
     metaller, ayristirma, oran,
     arz: {
       arzlar, yaklasanlar: yaklasanlar.map(y => y.slug), taslaklar, ozetler, kanitlar,
-      kurumKarnesi: A.kurumKarnesi(gecmis, 2)
+      kurumKarnesi: A.kurumKarnesi(gecmis, 2),
+      puanDogrulama: dogrulama
     },
     haberler: { altin: haberAltin, gumus: haberGumus, arz: haberArz }
   };

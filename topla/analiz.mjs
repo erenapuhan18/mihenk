@@ -19,6 +19,8 @@ export const ortalama = d => {
   return t.length ? t.reduce((a, b) => a + b, 0) / t.length : null;
 };
 
+const nfTR = n => (n == null || !isFinite(n)) ? "—" : new Intl.NumberFormat("tr-TR").format(Math.round(n));
+
 const kis = (x, a, b) => Math.max(a, Math.min(b, x));
 
 // ————————————————————————————————————————————————————————————
@@ -142,6 +144,42 @@ export function metalAnaliz(gecmis, ad, { tlFiyat = null, tlEtiket = '' } = {}) 
   const riskTL = ortMaliyet - stop;
   const odulTL = hedef1 - ortMaliyet;
 
+  // ——— Net hüküm: tek kelimelik karar + yapılacak somut iş + fikri değiştirecek eşik.
+  // Kullanıcı "al mı almasın" cevabını arıyor; belirsizlik varsa o da açıkça yazılır.
+  // Hüküm cümlesindeki sayılar Türkçe biçimde yazılır: 4.259 · 62,87
+  const f = v => (v == null || !isFinite(v)) ? '—' : new Intl.NumberFormat('tr-TR', {
+    minimumFractionDigits: ond, maximumFractionDigits: ond
+  }).format(v);
+  const k1 = kademeler[0], sonK = kademeler[kademeler.length - 1];
+  let hukum, netCumle, donusNoktasi;
+
+  if (tur === 'kademeli') {
+    hukum = 'KADEMELİ AL';
+    netCumle = `Alınır — ama tek seferde değil. Bugün ${f(fiyat)} seviyesinden pozisyonun %${k1.pay}’ini al; kalanı ${kademeler.slice(1).map(k => `${f(k.fiyat)} (%${k.pay})`).join(' ve ')} seviyelerine emir olarak bırak. Zarar kes ${f(stop)}.`;
+    donusNoktasi = sma50 != null
+      ? `Fiyat 50 günlük ortalamanın (${f(sma50)}) altında kapanırsa plan iptal — kalan kademeleri girme.`
+      : `Fiyat ${f(stop)} altında kapanırsa plan iptal.`;
+  } else if (tur === 'bekle' && asiriAlim) {
+    hukum = 'BEKLE';
+    netCumle = `Bugün alma. Trend yukarı ama fiyat gergin (RSI ${yuvarla(rsi, 0)}). ${f(k1.fiyat)} seviyesine alım emri bırak; oraya gelirse %${k1.pay} ile başla, gelmezse bu turu pas geç.`;
+    donusNoktasi = `RSI 60’ın altına çekilir ya da fiyat ${f(sd.destek[0]?.fiyat ?? stop)} desteğine gelirse hüküm “kademeli al”a döner.`;
+  } else if (tur === 'azalt') {
+    hukum = 'ALMA';
+    netCumle = `Yeni alım yapma. Ana trend henüz dönmedi. Elinde varsa satmak zorunda değilsin ama ekleme yapma; ${f(sonK.fiyat)} altına sarkarsa pozisyonu küçült.`;
+    donusNoktasi = sma200 != null
+      ? `Fiyat 200 günlük ortalamanın (${f(sma200)}) üzerinde iki gün üst üste kapanırsa hüküm “kademeli al”a döner. Bugün oraya %${new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format((sma200 - fiyat) / fiyat * 100)} var.`
+      : 'Ortalamalar yukarı dizilene kadar bekle.';
+  } else {
+    hukum = 'BEKLE';
+    netCumle = `Acele etme. Yön belirsiz; ${f(k1.fiyat)} desteğine emir bırak, ${f(hedef1)} direncine yaklaşırsa kâr al. Aradaki bantta işlem açma.`;
+    donusNoktasi = `Bant kırılırsa (${f(stop)} altı ya da ${f(hedef1)} üstü kapanış) yön netleşir.`;
+  }
+
+  // Risk/ödül elverişsizse hüküm ne olursa olsun uyar.
+  const riskUyari = (riskTL > 0 && odulTL > 0 && odulTL / riskTL < 1)
+    ? `Dikkat: ilk hedefe kazanç (${f(odulTL)}), stopa risk (${f(riskTL)}) kadarından az. Bu kurulumda pozisyonu küçük tut.`
+    : null;
+
   return {
     ad,
     fiyat: yuvarla(fiyat, ond),
@@ -168,7 +206,7 @@ export function metalAnaliz(gecmis, ad, { tlFiyat = null, tlEtiket = '' } = {}) 
     fibonacci: fib,
     trendPuani: puan,
     sinyaller,
-    karar: { tur, baslik, gerekce },
+    karar: { tur, hukum, baslik, gerekce, netCumle, donusNoktasi, riskUyari },
     plan: {
       kademeler,
       ortalamaMaliyet: ortMaliyet,
@@ -346,7 +384,7 @@ export function benzerArzlar(aday, gecmis, adet = 5) {
 
 // Aday arzın değerlendirmesi. Puan, geçmişteki kova medyanlarından türetilir —
 // elle atanmış ağırlık yok; her madde arkasındaki örneklem büyüklüğünü de taşır.
-export function arzDegerlendir(aday, gecmis) {
+export function arzDegerlendir(aday, gecmis, dogrulama = null) {
   const f = aday.faktor;
   const tumGetiriler = gecmis.map(g => g.perf?.getiri).filter(x => x != null);
   const genelMedyan = medyan(tumGetiriler) ?? 0;
@@ -427,6 +465,51 @@ export function arzDegerlendir(aday, gecmis) {
     gerekce = `Olumlu ve olumsuz ölçütler dengeli. Benzer arzların medyan getirisi %${yuvarla(benzerMedyan, 1)}; katılım maliyeti düşük olduğu için küçük tutarla girmek makul.`;
   }
 
+  // ——— Net hüküm: "katılayım mı" sorusuna tek satırlık cevap + beklenen tutar + kanıt.
+  const kova = (dogrulama?.satirlar || []).find(s =>
+    (puan >= 70 && s.ad === '70 ve üstü') || (puan >= 55 && puan < 70 && s.ad === '55-70') ||
+    (puan >= 45 && puan < 55 && s.ad === '45-55') || (puan < 45 && s.ad === '45 altı'));
+
+  // Beklenen lot: yakın dönem medyan katılımcı sayısına en yakın tahmin satırı.
+  const sonKatilimcilar = gecmis.slice(-20).map(g => g.katilimci).filter(Boolean);
+  const beklenenKatilim = sonKatilimcilar.length ? medyan(sonKatilimcilar) : null;
+  let lotBeklentisi = null;
+  if (beklenenKatilim && aday.lotTahmini?.length) {
+    const satirlar = aday.lotTahmini.map(t => {
+      const m = t.match(/^([\d.,]+)\s*(Bin|Milyon)?\s*katılım\s*~\s*([\d.]+)\s*Lot\s*\(([\d.]+)\s*TL\)/i);
+      if (!m) return null;
+      const carpan = /milyon/i.test(m[2] || '') ? 1e6 : /bin/i.test(m[2] || '') ? 1e3 : 1;
+      return { kisi: parseFloat(m[1].replace(/\./g, '').replace(',', '.')) * carpan, lot: +m[3], tl: +m[4] };
+    }).filter(Boolean);
+    if (satirlar.length) {
+      lotBeklentisi = satirlar.reduce((en, s) =>
+        Math.abs(s.kisi - beklenenKatilim) < Math.abs(en.kisi - beklenenKatilim) ? s : en);
+    }
+  }
+
+  const tutarMetni = lotBeklentisi
+    ? `${beklenenKatilim >= 1e6 ? yuvarla(beklenenKatilim / 1e6, 1) + ' milyon' : Math.round(beklenenKatilim / 1e3) + ' bin'} kişi katılırsa payına yaklaşık ${lotBeklentisi.lot} lot (${nfTR(lotBeklentisi.tl)} ₺) düşer`
+    : 'düşecek lot miktarı açıklanmamış';
+
+  const kanitMetni = kova
+    ? `Geçmişte bu puan aralığındaki ${kova.adet} arzın medyan getirisi %${kova.medyanGetiri}, %${kova.artidaOran}’i arz fiyatının üzerinde kaldı.`
+    : 'Bu puan aralığı için yeterli geçmiş örnek yok.';
+
+  let hukum, netCumle, riskCumlesi;
+  if (tur === 'katil') {
+    hukum = 'KATIL';
+    netCumle = `Katıl. ${tutarMetni} — bu tutar küçük olduğu için asıl risk paranın bağlanması değil, ilk günlerdeki dalgalanma. ${kanitMetni}`;
+    riskCumlesi = 'Yine de garanti değil: aynı aralıktaki arzların bir kısmı ekiye geçti. Girdiğin tutarı gözden çıkarabileceğin kadar tut.';
+  } else if (tur === 'uzakDur') {
+    hukum = 'KATILMA';
+    netCumle = `Katılma. Profil zayıf; ${tutarMetni}. ${kanitMetni}`;
+    riskCumlesi = 'Katılmamak da bir maliyet: bu profildeki arzların bir kısmı yine de kazandırdı. Ama beklenen değer bu grupta düşük.';
+  } else {
+    hukum = 'KÜÇÜK KATIL';
+    netCumle = `Küçük tutarla katıl. ${tutarMetni} — zaten sınırlı bir tutar, bu yüzden katılmanın maliyeti düşük. ${kanitMetni}`;
+    riskCumlesi = 'Ortalama bir profil: ne belirgin fırsat ne belirgin tuzak. Portföyünün küçük bir kısmıyla gir.';
+  }
+
   return {
     puan,
     olcutler,
@@ -439,7 +522,66 @@ export function arzDegerlendir(aday, gecmis) {
     benzerMedyan: yuvarla(benzerMedyan, 1),
     benzerArtiOran: benzerGetiriler.length ? yuvarla(benzerGetiriler.filter(x => x > 0).length / benzerGetiriler.length * 100, 0) : null,
     genelMedyan: yuvarla(genelMedyan, 1),
-    karar: { tur, baslik, gerekce }
+    karar: { tur, hukum, baslik, gerekce, netCumle, riskCumlesi },
+    lotBeklentisi, beklenenKatilim: beklenenKatilim ? Math.round(beklenenKatilim) : null
+  };
+}
+
+// Geriye dönük puanlama: her arz YALNIZCA kendisinden önce tamamlanmış arzların
+// verisiyle puanlanır. Bütün geçmişle puanlansaydı arzın kendi getirisi, karşılaştırıldığı
+// medyanın içinde olurdu ve puan kendini doğrulardı (ileriye bakma yanlılığı).
+export function geriyeDonukPuanla(arzlar, asgariOrnek = 12) {
+  const sirali = arzlar
+    .filter(a => a.perf?.getiri != null && a.tarih?.bitis)
+    .sort((a, b) => a.tarih.bitis.localeCompare(b.tarih.bitis));
+
+  let puanlanan = 0;
+  for (let i = 0; i < sirali.length; i++) {
+    const oncekiler = sirali.slice(0, i);
+    if (oncekiler.length < asgariOrnek) continue;
+    const d = arzDegerlendir(sirali[i], oncekiler);
+    sirali[i].puan = d.puan;
+    sirali[i].puanKarar = d.karar.tur;
+    sirali[i].puanOrnek = oncekiler.length;
+    puanlanan++;
+  }
+  return puanlanan;
+}
+
+// Puan gerçekten ayırt ediyor mu? Puan kovalarına göre gerçekleşen getiriler.
+// Bu tablo modelin kendi karnesidir; kötü çıkarsa da olduğu gibi yayımlanır.
+export function puanDogrulama(arzlar) {
+  const kovalar = [
+    { ad: '70 ve üstü', min: 70, max: 101 },
+    { ad: '55-70', min: 55, max: 70 },
+    { ad: '45-55', min: 45, max: 55 },
+    { ad: '45 altı', min: -1, max: 45 }
+  ];
+  const puanli = arzlar.filter(a => a.puan != null && a.perf?.getiri != null);
+  const satirlar = kovalar.map(k => {
+    const uyan = puanli.filter(a => a.puan >= k.min && a.puan < k.max);
+    const g = uyan.map(a => a.perf.getiri);
+    const ilk = uyan.map(a => a.perf.ilkGunGetiri).filter(x => x != null);
+    return {
+      ad: k.ad, adet: g.length,
+      medyanGetiri: g.length ? yuvarla(medyan(g), 1) : null,
+      medyanIlkGun: ilk.length ? yuvarla(medyan(ilk), 1) : null,
+      artidaOran: g.length ? yuvarla(g.filter(x => x > 0).length / g.length * 100, 0) : null
+    };
+  }).filter(s => s.adet > 0);
+
+  // Sıralama ilişkisi: puan yükseldikçe getiri de yükseliyor mu?
+  const g1 = satirlar.map(s => s.medyanGetiri);
+  const tutarli = g1.length >= 2 && g1.every((v, i) => i === 0 || v <= g1[i - 1]);
+
+  return {
+    satirlar,
+    toplamPuanli: puanli.length,
+    tutarli,
+    yorum: !satirlar.length ? 'Puanlanacak yeterli geçmiş yok.'
+      : tutarli
+        ? 'Puan sırası getiri sırasıyla uyuşuyor: yüksek puanlı arzlar gerçekten daha iyi getirmiş.'
+        : 'Puan ile getiri sırası tam uyuşmuyor. Puan bir eğilim gösterir, kesin bir sıralama vaat etmez.'
   };
 }
 

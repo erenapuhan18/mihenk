@@ -23,6 +23,14 @@ kaç lot düşeceği. 2024-2026 arasındaki bütün arzların gerçekleşen geti
 lider kurum sayılır. Tam liste yıl, aracı kurum, dağıtım yöntemi, arz büyüklüğü ve pazara göre
 filtrelenip yedi ölçüte göre sıralanabilir; arama Türkçe katlamalıdır ("GARANTI" → "Garanti").
 
+Her üç alanda da tek kelimelik bir **hüküm** verilir (AL / KADEMELİ AL / BEKLE / ALMA,
+halka arzda KATIL / KÜÇÜK KATIL / KATILMA), yanında yapılacak somut iş ve **fikri değiştirecek
+eşik** yazar — "200 günlük ortalamanın üzerinde iki gün kapanırsa hüküm döner" gibi.
+
+Geçmiş arzlar da puanlanır, ama her biri **yalnızca kendisinden önce tamamlanmış** arzların
+verisiyle: kendi getirisi karşılaştırıldığı medyanın içinde olsaydı puan kendini doğrulardı.
+Böylece puanın kendi karnesi de sitede yayımlanır (kova başına gerçekleşen medyan getiri).
+
 Puanlama elle atanmış ağırlıklara değil, **geçmiş arzların gerçekleşen medyan
 getirilerine** dayanır. Her yargının arkasındaki örneklem büyüklüğü de yayımlanır.
 
