@@ -110,12 +110,14 @@ function panelBugun() {
   const gramAltin = g.gramAltin ?? p.gram?.altin;
   const gramGumus = g.gramGumus ?? p.gram?.gumus;
   const onsAltin = g.onsAltin ?? p.onsAltin;
+  const onsGumus = g.onsGumus ?? p.onsGumus;
 
   const serit = `<div class="serit">
     ${[
       ['Gram altın', para(gramAltin, 0) + ' ₺', p.truncgil?.gramAltin?.degisim],
       ['Gram gümüş', para(gramGumus, 2) + ' ₺', p.truncgil?.gramGumus?.degisim],
       ['Ons altın', '$' + para(onsAltin, 0), m.altin?.degisim.gun],
+      ['Ons gümüş', '$' + para(onsGumus, 2), m.gumus?.degisim.gun],
       ['Dolar/TL', para(p.usdtry, 3) + ' ₺', p.truncgil?.usd?.degisim],
       ['BIST 100', nf(p.bist100, { maximumFractionDigits: 0 }), p.bistDegisim]
     ].map(([ad, dg, dgs]) => `<div class="seritHucre">
